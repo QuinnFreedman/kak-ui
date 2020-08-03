@@ -1,5 +1,6 @@
 [package]
 name = "kak-ui"
+description = "A high-level rust wrapper around kakoune's JSON-RPC user interface"
 version = "0.1.0"
 license = "MIT"
 authors = ["Shaurya Shubham <shauryashubham1234567890@gmail.com>"]
