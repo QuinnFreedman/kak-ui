@@ -1,10 +1,39 @@
 //! Provides a high-level wrapper around [kakoune's JSON-RPC UI](https://github.com/mawww/kakoune/blob/master/doc/json_ui.asciidoc).
+//! This crate doesn't have any opinions on how you choose to communicate with kakoune or how you choose to deserialize/serialize JSON
+//! as long as it is supported by serde.
 //!
-//! The main types here are IncomingRequest and OutgoingRequest.
-
+//! The main types to look at here are [`IncomingRequest`] and [`OutgoingRequest`].
+//!
+//! # Examples
+//!
+//! Basic usage:
+//!
+//!```rust
+//! use std::io::{BufRead, BufReader};
+//! use std::process::{Command, Child, Stdio};
+//! use kak_ui::{IncomingRequest, OutgoingRequest};
+//!
+//! let kak_child_process = Command::new("kak")
+//!     .args(&["-ui", "json"])
+//!     .stdout(Stdio::piped())
+//!     .stdin(Stdio::piped())
+//!     .spawn()
+//!     .unwrap();
+//!
+//! let incoming_request: IncomingRequest = serde_json::from_str(
+//!     &BufReader::new(kak_child_process.stdout.unwrap())
+//!         .lines()
+//!         .next()
+//!         .unwrap()
+//!         .unwrap(),
+//! )
+//! .unwrap();
+//!
+//! let outgoing_request = OutgoingRequest::Keys(vec!["<esc>:q<ret>".to_string()]);
+//! serde_json::to_writer(kak_child_process.stdin.unwrap(), &outgoing_request).unwrap();
+//!```
 
 // TODO: Add links to kakoune docs
-// TODO: Add example(s)
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
@@ -28,18 +57,19 @@ pub enum KakAttribute {
     FinalAttr,
 }
 
-// A kakoune face
+/// A kakoune face
 #[derive(Debug, Clone, Deserialize)]
 pub struct KakFace {
-    fg: KakColor,
-    bg: KakColor,
-    attributes: Vec<KakAttribute>,
+    pub fg: KakColor,
+    pub bg: KakColor,
+    pub attributes: Vec<KakAttribute>,
 }
 
+/// A kakoune atom
 #[derive(Debug, Clone, Deserialize)]
 pub struct KakAtom {
-    face: KakFace,
-    contents: String,
+    pub face: KakFace,
+    pub contents: String,
 }
 
 /// A [`Vec`] of [`KakAtom`]
@@ -48,10 +78,11 @@ pub type KakLine = Vec<KakAtom>;
 /// A coordinate in kakoune
 #[derive(Debug, Clone, Deserialize)]
 pub struct KakCoord {
-    line: u32,
-    column: u32,
+    pub line: u32,
+    pub column: u32,
 }
 
+/// A incoming request. Recieve this from kakoune's stdout
 #[derive(Debug, Clone)]
 pub enum IncomingRequest {
     Draw {
@@ -93,6 +124,22 @@ pub enum IncomingRequest {
     Refresh {
         force: bool,
     },
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[serde(tag = "method", content = "params")]
+enum RawIncomingRequest {
+    Draw(Vec<KakLine>, KakFace, KakFace),
+    DrawStatus(KakLine, KakLine, KakFace),
+    MenuShow(Vec<KakLine>, KakCoord, KakFace, KakFace, String),
+    MenuSelect((u32,)),
+    MenuHide([(); 0]),
+    InfoShow(KakLine, Vec<KakLine>, KakCoord, KakFace, String),
+    InfoHide([(); 0]),
+    SetCursor(String, KakCoord),
+    SetUiOptions((HashMap<String, String>,)),
+    Refresh((bool,)),
 }
 
 impl<'de> Deserialize<'de> for IncomingRequest {
@@ -138,32 +185,14 @@ impl From<RawIncomingRequest> for IncomingRequest {
                 style: e,
             },
             Raw::InfoHide(_) => Processed::InfoHide,
-            Raw::SetCursor(a, b) => Processed::SetCursor {
-                mode: a,
-                coord: b,
-            },
+            Raw::SetCursor(a, b) => Processed::SetCursor { mode: a, coord: b },
             Raw::SetUiOptions((a,)) => Processed::SetUiOptions { options: a },
             Raw::Refresh((a,)) => Processed::Refresh { force: a },
         }
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "snake_case")]
-#[serde(tag = "method", content = "params")]
-enum RawIncomingRequest {
-    Draw(Vec<KakLine>, KakFace, KakFace),
-    DrawStatus(KakLine, KakLine, KakFace),
-    MenuShow(Vec<KakLine>, KakCoord, KakFace, KakFace, String),
-    MenuSelect((u32,)),
-    MenuHide([(); 0]),
-    InfoShow(KakLine, Vec<KakLine>, KakCoord, KakFace, String),
-    InfoHide([(); 0]),
-    SetCursor(String, KakCoord),
-    SetUiOptions((HashMap<String, String>,)),
-    Refresh((bool,)),
-}
-
+/// A outgoing request. Input this to kakoune via stdin.
 #[derive(Debug, Clone)]
 pub enum OutgoingRequest {
     Keys(Vec<String>),
@@ -193,15 +222,6 @@ pub enum OutgoingRequest {
     },
 }
 
-impl Serialize for OutgoingRequest {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        JsonRpc::new(RawOutgoingRequest::from(self.clone())).serialize(serializer)
-    }
-}
-
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "snake_case")]
 #[serde(tag = "method", content = "params")]
@@ -213,6 +233,15 @@ enum RawOutgoingRequest {
     MousePress(String, u32, u32),
     MouseRelease(String, u32, u32),
     MenuSelect((u32,)),
+}
+
+impl Serialize for OutgoingRequest {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        JsonRpc::new(RawOutgoingRequest::from(self.clone())).serialize(serializer)
+    }
 }
 
 impl From<OutgoingRequest> for RawOutgoingRequest {
