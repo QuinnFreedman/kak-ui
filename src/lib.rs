@@ -42,6 +42,12 @@ use std::collections::HashMap;
 #[derive(Debug, Clone, Deserialize)]
 pub struct KakColor(String);
 
+impl KakColor {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 /// An attribute in kakoune
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "snake_case")]
