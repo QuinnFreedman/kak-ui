@@ -35,16 +35,70 @@
 
 // TODO: Add links to kakoune docs
 
+use serde::de::Visitor;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
 
 /// A color in kakoune. Currently, this is a newtype wrapper around String.
-#[derive(Debug, Clone, Deserialize)]
-pub struct KakColor(String);
+#[derive(Debug, Clone)]
+pub enum KakColor {
+    RGB(String),
+    RGBA(String),
+    Black,
+    Red,
+    Green,
+    Yellow,
+    Blue,
+    Purple,
+    Cyan,
+    White,
+    Default,
+}
 
-impl KakColor {
-    pub fn as_str(&self) -> &str {
-        &self.0
+impl<'de> Deserialize<'de> for KakColor {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_str(ColorVisitor)
+    }
+}
+
+struct ColorVisitor;
+
+impl<'de> Visitor<'de> for ColorVisitor {
+    type Value = KakColor;
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        formatter.write_str("a kakoune color")
+    }
+
+    fn visit_str<E>(self, s: &str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        match s {
+            "black" => Ok(KakColor::Black),
+            "red" => Ok(KakColor::Red),
+            "green" => Ok(KakColor::Green),
+            "yellow" => Ok(KakColor::Yellow),
+            "blue" => Ok(KakColor::Blue),
+            "purple" => Ok(KakColor::Purple),
+            "cyan" => Ok(KakColor::Cyan),
+            "white" => Ok(KakColor::White),
+            "default" => Ok(KakColor::Default),
+            x => {
+                if &x[..4] == "rgb:" {
+                    Ok(KakColor::RGB((&x[4..]).to_string()))
+                } else if &x[..5] == "rgba:" {
+                    Ok(KakColor::RGBA((&x[5..]).to_string()))
+                } else {
+                    Err(serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Str(x),
+                        &"black|red|green|yellow|blue|purple|cyan|white|default|rgb:HEX",
+                    ))
+                }
+            }
+        }
     }
 }
 
